@@ -151,7 +151,7 @@ class SocialSentimentService:
 
     def fetch_reddit_report(self, ticker: str) -> Optional[Dict]:
         """Fetch detailed Reddit report for a single ticker."""
-        url = f"{self._api_url}/reddit/stocks/v1/report/{ticker.upper()}"
+        url = f"{self._api_url}/reddit/stocks/v1/stock/{ticker.upper()}"
         return self._fetch_json(url)
 
     def fetch_reddit_trending(self) -> Optional[List[Dict]]:
@@ -266,7 +266,12 @@ class SocialSentimentService:
             # Sentiment (0 is a valid neutral value, must not be dropped)
             sentiment = SocialSentimentService._coalesce(report.get("sentiment_score"), report.get("sentiment"))
             if sentiment is not None:
-                lines.append(f"  Sentiment Score: {sentiment}")
+                bull = report.get("bullish_pct")
+                bear = report.get("bearish_pct")
+                extra = ""
+                if bull is not None and bear is not None:
+                    extra = f" (bullish {bull}% / bearish {bear}%)"
+                lines.append(f"  Sentiment Score: {sentiment}{extra}")
 
             # Mentions
             mentions = SocialSentimentService._coalesce(report.get("total_mentions"), report.get("mentions"))
@@ -275,33 +280,36 @@ class SocialSentimentService:
                 sub_str = f" across {subs} subreddits" if subs else ""
                 lines.append(f"  Mentions: {mentions}{sub_str} (7-day)")
 
-            # Top mentions
-            top_mentions = report.get("top_mentions", [])
+            # Top subreddits
+            top_mentions = report.get("top_mentions") or report.get("top_subreddits", [])
             if top_mentions:
-                lines.append("  Top Mentions:")
+                lines.append("  Top Subreddits:")
                 for i, m in enumerate(top_mentions[:5], 1):
                     text = (m.get("text") or m.get("title") or "")[:120]
                     sub = m.get("subreddit", "")
                     score = SocialSentimentService._coalesce(m.get("sentiment_score"), m.get("sentiment"))
+                    mcnt = m.get("mentions", "")
                     upvotes = m.get("upvotes", "")
                     meta_parts = []
                     if score is not None:
                         meta_parts.append(f"sentiment: {score}")
                     if sub:
                         meta_parts.append(f"r/{sub}")
+                    if mcnt:
+                        meta_parts.append(f"{mcnt} mentions")
                     if upvotes:
                         meta_parts.append(f"{upvotes} upvotes")
                     meta = f" ({', '.join(meta_parts)})" if meta_parts else ""
                     lines.append(f"    {i}. \"{text}\"{meta}")
 
             # Daily stats
-            daily = report.get("daily_stats", [])
+            daily = report.get("daily_stats") or report.get("daily_trend", [])
             if daily:
                 lines.append("  Recent Daily Activity:")
                 for d in daily[:5]:
                     day = d.get("date", "")
                     day_mentions = d.get("mentions", "?")
-                    day_sentiment = d.get("avg_sentiment", "?")
+                    day_sentiment = SocialSentimentService._coalesce(d.get("avg_sentiment"), d.get("sentiment_score"), "?")
                     lines.append(f"    {day}: {day_mentions} mentions, avg sentiment {day_sentiment}")
         else:
             lines.append("\n🔴 Reddit: No data available")
